@@ -49,7 +49,7 @@
 		<script>
 			(function () {
 				// Fator de desaceleração: minutos/segundos passam % mais devagar => 0.85x do tempo real
-				const SPEED_FACTOR = 0.50;
+				const SPEED_FACTOR = 0.80;
 
 				const timeEl = document.getElementById('time');
 				const hintEl = document.getElementById('hint');
@@ -58,6 +58,31 @@
 				let startReal = 0; // performance.now() quando começou
 				let rafId = null;
 				let running = false;
+				let wakeLock = null; // Screen Wake Lock handle
+				const wakeSupported = 'wakeLock' in navigator;
+
+				async function requestWakeLock() {
+					if (!wakeSupported) return;
+					try {
+						// Algumas plataformas exigem gesto do usuário. Tente sempre que iniciar/voltar ao app.
+						wakeLock = await navigator.wakeLock.request('screen');
+						wakeLock.addEventListener('release', () => {
+							// Wake Lock liberado (por sistema ou manualmente)
+						});
+					} catch (err) {
+						// Pode falhar se o navegador não permitir ou se não houver gesto do usuário
+						// console.debug('Falha ao solicitar Wake Lock:', err);
+					}
+				}
+
+				async function releaseWakeLock() {
+					try {
+						if (wakeLock) {
+							await wakeLock.release();
+							wakeLock = null;
+						}
+					} catch (_) {}
+				}
 
 				function pad(num, size) {
 					let s = String(num);
@@ -67,7 +92,7 @@
 
 				function askMinutes() {
 					// Mostra uma instrução rápida e depois pede o valor
-					alert('Informe o tempo em minutos. O cronômetro conta 15% mais devagar.');
+					alert('Informe o tempo em minutos.');
 					let minutes = null;
 					// loop até obter um número positivo
 					while (true) {
@@ -85,6 +110,8 @@
 					startReal = performance.now();
 					running = true;
 					hintEl.classList.add('hidden');
+					// Tenta manter a tela ativa
+					requestWakeLock();
 
 					function tick(now) {
 						const realElapsed = now - startReal;
@@ -107,6 +134,7 @@
 							running = false;
 							timeEl.textContent = '00:00:000';
 							hintEl.classList.remove('hidden');
+							releaseWakeLock();
 						}
 					}
 
@@ -126,8 +154,17 @@
 					startCountdown(m);
 				}
 
-				// Clique para reiniciar
+				// Requisita Wake Lock novamente quando voltar à aba/visibilidade
+				document.addEventListener('visibilitychange', () => {
+					if (document.visibilityState === 'visible' && running) {
+						requestWakeLock();
+					}
+				});
+
+				// Clique para reiniciar (e também conta como gesto para Wake Lock)
 				window.addEventListener('click', () => {
+					// Tenta adquirir nos cliques (gesto do usuário)
+					requestWakeLock();
 					if (running) return;
 					const m = askMinutes();
 					if (m != null) startCountdown(m);
