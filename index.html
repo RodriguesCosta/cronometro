@@ -1,178 +1,362 @@
 <!doctype html>
 <html lang="pt-BR">
-	<head>
-		<meta charset="utf-8" />
-		<meta name="viewport" content="width=device-width,initial-scale=1" />
-		<title>Cronômetro Regressivo</title>
-		<style>
-			:root {
-				color-scheme: dark;
-			}
-			html, body {
-				height: 100%;
-				margin: 0;
-			}
-			body {
-				background: #000;
-				color: #fff;
-				display: grid;
-				place-items: center;
-				font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-				user-select: none;
-				-webkit-tap-highlight-color: transparent;
-			}
-			#wrap {
-				text-align: center;
-				width: 100%;
-			}
-			#time {
-				font-variant-numeric: tabular-nums; /* uniform width digits */
-				letter-spacing: 0.02em;
-				line-height: 1;
-				/* responsive sizing */
-				font-size: clamp(48px, 18vw, 180px);
-			}
-			#hint {
-				margin-top: 1rem;
-				opacity: 0.5;
-				font-size: clamp(12px, 2.8vw, 16px);
-			}
-			.hidden { display: none; }
-		</style>
-	</head>
-	<body>
-		<div id="wrap">
-			<div id="time">00:00:000</div>
-			<div id="hint">Clique para reiniciar</div>
+
+<head>
+	<meta charset="utf-8" />
+	<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+	<meta name="apple-mobile-web-app-capable" content="yes" />
+	<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+	<meta name="apple-mobile-web-app-title" content="Cronômetro" />
+	<meta name="theme-color" content="#000000" />
+	<link rel="apple-touch-icon"
+		href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Crect width='180' height='180' fill='%23000'/%3E%3Ctext x='90' y='120' font-size='100' text-anchor='middle' fill='%23fff' font-family='monospace'%3E⏱%3C/text%3E%3C/svg%3E" />
+	<link rel="manifest" href="manifest.json" />
+	<title>Cronômetro Regressivo</title>
+	<style>
+		:root {
+			color-scheme: dark;
+		}
+
+		html,
+		body {
+			height: 100%;
+			margin: 0;
+		}
+
+		body {
+			background: #000;
+			color: #fff;
+			display: grid;
+			place-items: center;
+			font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+			user-select: none;
+			-webkit-tap-highlight-color: transparent;
+		}
+
+		#wrap {
+			text-align: center;
+			width: 100%;
+		}
+
+		#time {
+			font-variant-numeric: tabular-nums;
+			/* uniform width digits */
+			letter-spacing: 0.02em;
+			line-height: 1;
+			/* responsive sizing */
+			font-size: clamp(48px, 18vw, 180px);
+			display: flex;
+			justify-content: center;
+			align-items: baseline;
+		}
+
+		.ms-part {
+			font-size: 0.5em;
+		}
+
+		#hint {
+			margin-top: 1rem;
+			opacity: 0.5;
+			font-size: clamp(12px, 2.8vw, 16px);
+		}
+
+		#controls {
+			margin-top: 2rem;
+			display: flex;
+			gap: 1rem;
+			justify-content: center;
+			flex-wrap: wrap;
+		}
+
+		button {
+			background: #222;
+			color: #fff;
+			border: 1px solid #444;
+			border-radius: 8px;
+			padding: 0.8rem 1.5rem;
+			font-size: clamp(14px, 3vw, 18px);
+			font-family: inherit;
+			cursor: pointer;
+			transition: all 0.2s;
+			min-width: 100px;
+		}
+
+		button:hover {
+			background: #333;
+			border-color: #666;
+		}
+
+		button:active {
+			transform: scale(0.95);
+		}
+
+		button:disabled {
+			opacity: 0.3;
+			cursor: not-allowed;
+		}
+
+		.hidden {
+			display: none;
+		}
+	</style>
+</head>
+
+<body>
+	<div id="wrap">
+		<div id="time">
+			<span id="time-main">00:00</span>
+			<span id="time-ms" class="ms-part">:000</span>
 		</div>
+		<div id="hint">Clique em Iniciar para começar</div>
+		<div id="controls">
+			<button id="startBtn">Iniciar</button>
+			<button id="pauseBtn" disabled>Pausar</button>
+			<button id="resetBtn" disabled>Reiniciar</button>
+		</div>
+	</div>
 
-		<script>
-			(function () {
-				// Fator de desaceleração: minutos/segundos passam % mais devagar => 0.85x do tempo real
-				const SPEED_FACTOR = 1;
+	<script>
+		(function () {
+			// Fator de desaceleração: minutos/segundos passam % mais devagar => 0.80x do tempo real
+			const SPEED_FACTOR = 0.80;
+			const STORAGE_KEY = 'cronometro_state';
 
-				const timeEl = document.getElementById('time');
-				const hintEl = document.getElementById('hint');
+			const timeMainEl = document.getElementById('time-main');
+			const timeMsEl = document.getElementById('time-ms');
+			const hintEl = document.getElementById('hint');
+			const startBtn = document.getElementById('startBtn');
+			const pauseBtn = document.getElementById('pauseBtn');
+			const resetBtn = document.getElementById('resetBtn');
 
-				let totalMs = 0; // duração escolhida (em ms) em "tempo exibido"
-				let startReal = 0; // performance.now() quando começou
-				let rafId = null;
-				let running = false;
-				let wakeLock = null; // Screen Wake Lock handle
-				const wakeSupported = 'wakeLock' in navigator;
+			let totalMs = 0; // duração escolhida (em ms) em "tempo exibido"
+			let remainingMs = 0; // tempo restante atual
+			let startReal = 0; // performance.now() quando começou/retomou
+			let rafId = null;
+			let running = false;
+			let paused = false;
+			let wakeLock = null; // Screen Wake Lock handle
+			const wakeSupported = 'wakeLock' in navigator;
 
-				async function requestWakeLock() {
-					if (!wakeSupported) return;
-					try {
-						// Algumas plataformas exigem gesto do usuário. Tente sempre que iniciar/voltar ao app.
-						wakeLock = await navigator.wakeLock.request('screen');
-						wakeLock.addEventListener('release', () => {
-							// Wake Lock liberado (por sistema ou manualmente)
-						});
-					} catch (err) {
-						// Pode falhar se o navegador não permitir ou se não houver gesto do usuário
-						// console.debug('Falha ao solicitar Wake Lock:', err);
+			async function requestWakeLock() {
+				if (!wakeSupported) return;
+				if (wakeLock) return;
+				try {
+					wakeLock = await navigator.wakeLock.request('screen');
+					wakeLock.addEventListener('release', () => {
+						wakeLock = null;
+					});
+				} catch (err) {
+					// Pode falhar se o navegador não permitir
+				}
+			}
+
+			async function releaseWakeLock() {
+				try {
+					if (wakeLock) {
+						await wakeLock.release();
+						wakeLock = null;
 					}
-				}
+				} catch (_) { }
+			}
 
-				async function releaseWakeLock() {
-					try {
-						if (wakeLock) {
-							await wakeLock.release();
-							wakeLock = null;
-						}
-					} catch (_) {}
-				}
+			function pad(num, size) {
+				let s = String(num);
+				while (s.length < size) s = '0' + s;
+				return s;
+			}
 
-				function pad(num, size) {
-					let s = String(num);
-					while (s.length < size) s = '0' + s;
-					return s;
-				}
+			function saveState() {
+				const state = {
+					totalMs,
+					remainingMs,
+					paused,
+					running,
+					timestamp: Date.now()
+				};
+				localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+			}
 
-				function askMinutes() {
-					// Mostra uma instrução rápida e depois pede o valor
-					alert('Informe o tempo em minutos.');
-					let minutes = null;
-					// loop até obter um número positivo
-					while (true) {
-						const input = prompt('Quantos minutos? (ex: 30)');
-						if (input === null) return null; // usuário cancelou
-						minutes = parseFloat(input.replace(',', '.'));
-						if (Number.isFinite(minutes) && minutes > 0) break;
-						alert('Valor inválido. Digite um número maior que 0.');
-					}
-					return minutes;
+			function loadState() {
+				try {
+					const saved = localStorage.getItem(STORAGE_KEY);
+					if (!saved) return null;
+					return JSON.parse(saved);
+				} catch (e) {
+					return null;
 				}
+			}
 
-				function startCountdown(minutes) {
-					totalMs = Math.round(minutes * 60 * 1000);
-					startReal = performance.now();
+			function clearState() {
+				localStorage.removeItem(STORAGE_KEY);
+			}
+
+			function updateDisplay(remaining) {
+				const totalSeconds = Math.floor(remaining / 1000);
+				const mins = Math.floor(totalSeconds / 60);
+				const secs = totalSeconds % 60;
+				const fakeMs = Math.floor(Math.random() * 1000);
+				timeMainEl.textContent = `${pad(mins, 2)}:${pad(secs, 2)}`;
+				timeMsEl.textContent = `:${pad(fakeMs, 3)}`;
+			}
+
+			function updateButtons() {
+				if (running) {
+					startBtn.disabled = true;
+					pauseBtn.disabled = false;
+					resetBtn.disabled = false;
+					pauseBtn.textContent = 'Pausar';
+				} else if (paused) {
+					startBtn.disabled = true;
+					pauseBtn.disabled = false;
+					resetBtn.disabled = false;
+					pauseBtn.textContent = 'Retomar';
+				} else {
+					startBtn.disabled = false;
+					pauseBtn.disabled = true;
+					resetBtn.disabled = true;
+					pauseBtn.textContent = 'Pausar';
+				}
+			}
+
+			function askMinutes() {
+				let minutes = null;
+				while (true) {
+					const input = prompt('Quantos minutos? (ex: 30)');
+					if (input === null) return null;
+					minutes = parseFloat(input.replace(',', '.'));
+					if (Number.isFinite(minutes) && minutes > 0) break;
+					alert('Valor inválido. Digite um número maior que 0.');
+				}
+				return minutes;
+			}
+
+			function tick(now) {
+				const realElapsed = now - startReal;
+				const slowedElapsed = realElapsed * SPEED_FACTOR;
+				remainingMs = Math.max(totalMs - slowedElapsed, 0);
+
+				updateDisplay(remainingMs);
+				saveState();
+
+				if (remainingMs > 0) {
+					rafId = requestAnimationFrame(tick);
+				} else {
+					// Tempo acabou
+					running = false;
+					paused = false;
+					timeMainEl.textContent = '00:00';
+					timeMsEl.textContent = ':000';
+					hintEl.textContent = 'Tempo encerrado!';
+					hintEl.classList.remove('hidden');
+					updateButtons();
+					clearState();
+				}
+			}
+
+			function start() {
+				if (running || paused) return;
+
+				const minutes = askMinutes();
+				if (minutes === null) return;
+
+				totalMs = Math.round(minutes * 60 * 1000);
+				remainingMs = totalMs;
+				startReal = performance.now();
+				running = true;
+				paused = false;
+				hintEl.classList.add('hidden');
+				updateButtons();
+				requestWakeLock();
+				saveState();
+
+				cancelAnimationFrame(rafId);
+				rafId = requestAnimationFrame(tick);
+			}
+
+			function pause() {
+				if (running) {
+					// Pausar
+					running = false;
+					paused = true;
+					cancelAnimationFrame(rafId);
+
+					// Atualiza totalMs para o tempo restante
+					const realElapsed = performance.now() - startReal;
+					const slowedElapsed = realElapsed * SPEED_FACTOR;
+					totalMs = Math.max(totalMs - slowedElapsed, 0);
+
+					updateButtons();
+					saveState();
+					hintEl.textContent = 'Pausado';
+					hintEl.classList.remove('hidden');
+				} else if (paused) {
+					// Retomar
 					running = true;
+					paused = false;
+					startReal = performance.now();
 					hintEl.classList.add('hidden');
-					// Tenta manter a tela ativa
+					updateButtons();
 					requestWakeLock();
-
-					function tick(now) {
-						const realElapsed = now - startReal;
-						const slowedElapsed = realElapsed * SPEED_FACTOR;
-						let remaining = Math.max(totalMs - slowedElapsed, 0);
-
-						// Calcula minutos e segundos a partir do tempo desacelerado
-						const totalSeconds = Math.floor(remaining / 1000);
-						const mins = Math.floor(totalSeconds / 60);
-						const secs = totalSeconds % 60;
-
-						// Milissegundos apenas visuais/aleatórios (0..999)
-						const fakeMs = Math.floor(Math.random() * 1000);
-
-						timeEl.textContent = `${pad(mins, 2)}:${pad(secs, 2)}:${pad(fakeMs, 3)}`;
-
-						if (remaining > 0) {
-							rafId = requestAnimationFrame(tick);
-						} else {
-							running = false;
-							timeEl.textContent = '00:00:000';
-							hintEl.classList.remove('hidden');
-							releaseWakeLock();
-						}
-					}
-
+					saveState();
 					cancelAnimationFrame(rafId);
 					rafId = requestAnimationFrame(tick);
 				}
+			}
 
-				function init() {
-					const m = askMinutes();
-					if (m == null) {
-						// usuário cancelou — mostra instrução e fica parado
-						timeEl.textContent = '00:00:000';
-						hintEl.textContent = 'Atualize a página ou clique para começar';
-						hintEl.classList.remove('hidden');
-						return;
-					}
-					startCountdown(m);
+			function reset() {
+				running = false;
+				paused = false;
+				cancelAnimationFrame(rafId);
+				totalMs = 0;
+				remainingMs = 0;
+				timeMainEl.textContent = '00:00';
+				timeMsEl.textContent = ':000';
+				hintEl.textContent = 'Clique em Iniciar para começar';
+				hintEl.classList.remove('hidden');
+				updateButtons();
+				clearState();
+			}
+
+			function restoreFromStorage() {
+				const state = loadState();
+				if (!state) return;
+
+				totalMs = state.totalMs;
+				remainingMs = state.remainingMs;
+
+				if (state.running || state.paused) {
+					// Restaura como pausado
+					paused = true;
+					running = false;
+					updateDisplay(remainingMs);
+					hintEl.textContent = 'Pausado (restaurado)';
+					hintEl.classList.remove('hidden');
+					updateButtons();
 				}
+			}
 
-				// Requisita Wake Lock novamente quando voltar à aba/visibilidade
-				document.addEventListener('visibilitychange', () => {
-					if (document.visibilityState === 'visible' && running) {
-						requestWakeLock();
-					}
-				});
+			// Event listeners
+			startBtn.addEventListener('click', start);
+			pauseBtn.addEventListener('click', pause);
+			resetBtn.addEventListener('click', reset);
 
-				// Clique para reiniciar (e também conta como gesto para Wake Lock)
-				window.addEventListener('click', () => {
-					// Tenta adquirir nos cliques (gesto do usuário)
+			// Requisita Wake Lock novamente quando voltar à aba/visibilidade
+			document.addEventListener('visibilitychange', () => {
+				if (document.visibilityState === 'visible') {
 					requestWakeLock();
-					if (running) return;
-					const m = askMinutes();
-					if (m != null) startCountdown(m);
-				});
+				}
+			});
 
-				// Inicia ao carregar
-				window.addEventListener('load', init);
-			})();
-		</script>
-	</body>
-	</html>
+			// Tenta manter a tela ligada em qualquer clique
+			window.addEventListener('click', requestWakeLock);
+
+			// Inicia ao carregar - tenta restaurar do storage
+			window.addEventListener('load', () => {
+				restoreFromStorage();
+				requestWakeLock();
+			});
+		})();
+	</script>
+</body>
+
+</html>
